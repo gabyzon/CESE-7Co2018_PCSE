@@ -7,26 +7,29 @@
 #ifndef _APP_H_
 #define _APP_H_
 
-/*==================[inclusiones]============================================*/
-
-/*==================[c++]====================================================*/
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+/*==================[inclusions]=============================================*/
+#include <stdint.h>
+#include "sapi.h"              // <= sAPI header
 
 /*==================[macros]=================================================*/
 
-/*==================[tipos de datos declarados por el usuario]===============*/
 
-/*==================[declaraciones de datos externos]========================*/
+/*==================[typedef]================================================*/
 
-/*==================[declaraciones de funciones externas]====================*/
+typedef enum{
+    m_principal,
+    m_config,
+    m_cronom,
+    p_contador
+} MEFpantalla_t;
 
-/*==================[c++]====================================================*/
-#ifdef __cplusplus
-}
-#endif
+/*typedef enum{
+   B_arriba,
+   B_abajo,
+   B_desc,
+   B_asc
+} MEFbutton_t;*/
 
-/*==================[end of file]============================================*/
-#endif /* _APP_H_ */
+/*==================[external functions declaration]=========================*/
+
+#endif /* APP_H */
