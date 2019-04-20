@@ -12,6 +12,7 @@
 #include "grabar_sd.h"
 #include "ff.h"       // <= Biblioteca FAT FS
 #include "fssdc.h"    // API de bajo nivel para unidad "SDC:" en FAT FS
+#include "rtc_ds1307.h"
 
 
 /*==================[macros and definitions]=================================*/
@@ -59,11 +60,11 @@ void init_state( void );
 void main_menu(void);
 void cronometro(void);
 void configura(void);
-void showDateAndTime( rtc_t * rtc );
+void showDateAndTime( DS1307_rtc_t * rtc );
 
 /*==================[Global variables]==========================*/
 /* Estructura RTC */
-rtc_t rtc;
+DS1307_rtc_t rtc;
 bool_t val = 0;
 uint8_t i = 0;
 
@@ -80,7 +81,6 @@ int main( void )
     consolePrintConfigUart( UART_USB, 115200 );
 
     /* Estructura RTC */
-	rtc_t rtc;
     bool_t val = 0;
     uint8_t i = 0;
 
@@ -88,26 +88,21 @@ int main( void )
     lcdInit( 20, 4, 5, 8 );
 
     /* Inicializar RTC */
-	val = rtcConfig( &rtc );
-	delay_t delay1s;
-	delayConfig( &delay1s, 1000 );
-	delay(2000); // El RTC tarda en setear la hora, por eso el delay
+    val = DS1307rtcInit( &rtc );
     
     // Configuro el estado inicial de las maquinas de estado
     init_state();
-    
 
-    
-   // ---------- REPETIR POR SIEMPRE --------------------------
+    // ---------- REPETIR POR SIEMPRE --------------------------
     while( TRUE ) 
     {
         main_menu();
     }
 
-   // NO DEBE LLEGAR NUNCA AQUI, debido a que a este programa se ejecuta
-   // directamenteno sobre un microcontroladore y no es llamado por ningun
-   // Sistema Operativo, como en el caso de un programa para PC.
-   return 0;
+    // NO DEBE LLEGAR NUNCA AQUI, debido a que a este programa se ejecuta
+    // directamenteno sobre un microcontroladore y no es llamado por ningun
+    // Sistema Operativo, como en el caso de un programa para PC.
+    return 0;
 }
 
 
@@ -155,6 +150,7 @@ void cronometro(void)
     uint8_t ss = 0;
     uint8_t mm = 0;
     uint8_t hh = 0;
+    int8_t lector; // variable para el control de error del lector
     char resultado[] = "gigolo!";
 
     lcdClear(); // Borrar la pantalla
@@ -226,10 +222,13 @@ void cronometro(void)
                 {
                     lcdGoToXY( 1, 4 ); // Poner cursor en 1, 1 (columna,fila)
                     lcdSendStringRaw( "4- Guardar " );
-                    // ACA TENGO QUE CARGAR AL CHAR "resultado" el resultado con fecha y hora"
+                    
                     /* Leer fecha y hora */
-                    val = rtcRead( &rtc );
-                    sprintf(resultado, "%d:%d:%d.%d%d    %d/%d/%d    %d:%d:%d" , hh, mm, ss, cs, ds, rtc.mday, rtc.month, rtc.year, rtc.hour, rtc.min, rtc.sec);
+                    lector = DS1307rtcRead( &rtc );
+                    /* Acá debo hacer el control de errores*/
+
+                    // Creo un char con el tiempo cronometrado, la fecha y la hora del registro
+                    sprintf(resultado, "%d:%d:%d.%d%d    %d/%d/%d    %d:%d:%d" , hh, mm, ss, cs, ds, mday_decimal(rtc.mday), month_decimal(rtc.month), year_decimal(rtc.year), time_decimal(rtc.hour), time_decimal(rtc.min), time_decimal(rtc.sec));
                     uint8_t largo = strlen(resultado); // mido la longitud final del char
                     while(TRUE)
                     {
@@ -262,6 +261,8 @@ void cronometro(void)
 // Función de configuracion
 void configura(void)
 {
+    int8_t lector; // variable para el control de error del rtc
+    
     lcdClear(); // Borrar la pantalla
     lcdGoToXY( 1, 1 ); // Poner cursor en 1, 1 (columna,fila)
     lcdSendStringRaw( "1- Ver hora" ); 
@@ -286,7 +287,10 @@ void configura(void)
                 lcdSendStringRaw( "Fecha y Hora" ); 
                 
                 /* Leer fecha y hora */
-                val = rtcRead( &rtc );
+                lector = DS1307rtcRead( &rtc );
+                
+                /* Acá debo agregar el control de error*/
+                
                 
                 /* Mostrar fecha y hora en formato "DD/MM/YYYY, HH:MM:SS" */
                 showDateAndTime( &rtc );
@@ -309,19 +313,24 @@ void configura(void)
             /* Titulo de pantalla */
             lcdClear();
             lcdGoToXY( 3, 2 ); // Poner cursor en 4, 1 (columna,fila)
-            lcdSendStringRaw( "Configurando..." );         	
-            rtc.year = 2018;
-            rtc.month = 3;
-            rtc.mday = 6;
+            lcdSendStringRaw( "Configurando..." );   
+            
+            // Cargo los valores de reloj deseados, esta vez lo hacemos a mano
+            rtc.year = 0b00011000; // año 18
+            rtc.month = 0b00010010; // mes 12
+            rtc.mday = 0b00110001; // dia 31
             rtc.wday = 1;
-            rtc.hour = 23;
-            rtc.min = 59;
-            rtc.sec= 45;
+            rtc.hour = 0b00010011; // 13 horas 
+            rtc.min = 0b01011001; // 59 minutos
+            rtc.sec= 0b01000101; // 45 segundos 
             
             /* Establecer fecha y hora */
-            val = rtcWrite( &rtc );
+            // Enviamos los valores cargados al RTC
+            lector = DS1307rtcWrite( &rtc );
+            /* Acá debo hacer el control de error*/
             
             delay(1000);
+            
             lcdClear(); // Borrar la pantalla
             lcdGoToXY( 1, 1 ); // Poner cursor en 1, 1 (columna,fila)
             lcdSendStringRaw( "1- Ver hora" ); 
@@ -384,75 +393,95 @@ void error_state( void )
 }
 
 /* Enviar fecha y hora en formato "DD/MM/YYYY, HH:MM:SS" */
-void showDateAndTime( rtc_t * rtc ){
+void showDateAndTime( DS1307_rtc_t * rtc ){
 	
+    int decimal;
+    char sec_d[10], min_d[10], hour_d[10], mday_d[10], month_d[10], year_d[10];
     /* Conversion de entero a ascii con base decimal */
-	itoa( (int) (rtc->mday), (char*)uartBuff, 10 ); /* 10 significa decimal */
-	/* Envio el dia */
+	decimal = 0;
+    decimal = mday_decimal(rtc->mday); // Descompone el int8 en 2 partes y lo convierte a decimal
+    sprintf(mday_d, "%d", decimal);// Convertimos el resultado en un char
+      
+    /* Envio el dia */
     lcdGoToXY( 1, 3 ); // Poner cursor en 1, 1 (columna,fila)
-	if( (rtc->mday)<10 )
+	if( (decimal)<10 )
     {
         lcdSendStringRaw( "0" );  
     }
-    lcdSendStringRaw( uartBuff );
+    lcdSendStringRaw( mday_d );
     lcdGoToXY( 3, 3 ); // Poner cursor en 3, 1 (columna,fila)
     lcdSendStringRaw( "/" );
     
 	/* Conversion de entero a ascii con base decimal */
-	itoa( (int) (rtc->month), (char*)uartBuff, 10 ); /* 10 significa decimal */
-	/* Envio el mes */
+    decimal = 0;
+    decimal = month_decimal(rtc->month); // Descompone el int8 en 2 partes y lo convierte a decimal
+    sprintf(month_d, "%d", decimal);// Convertimos el resultado en un char
+    
+    /* Envio el mes */
     lcdGoToXY( 4, 3 ); // Poner cursor en 1, 4
-	if( (rtc->month)<10 )
+	if( (decimal)<10 )
     {
         lcdSendStringRaw( "0" );  
     }
-    lcdSendStringRaw( uartBuff );
-    lcdGoToXY( 6, 3 ); // Poner cursor en 6, 1 (columna,fila)
+    lcdSendStringRaw( month_d );
+    lcdGoToXY( 6, 3 ); // Poner cursor en 6, 3 (columna,fila)
     lcdSendStringRaw( "/" );
     
 	/* Conversion de entero (rtc.year) a ascii con base decimal (uartBuff) */
-	itoa( (int) (rtc->year), (char*)uartBuff, 10 ); /* 10 significa decimal */
-	/* Envio el año    */
-    lcdGoToXY( 7, 3 ); // Poner cursor en 1, 1
-	if( (rtc->year)<10 )
+    decimal = 0;
+    decimal = year_decimal(rtc->year); // Descompone el int8 en 2 partes y lo convierte a decimal
+    sprintf(year_d, "%d", decimal);// Convertimos el resultado en un char
+    
+    /* Envio el año    */
+    lcdGoToXY( 7, 3 ); // Poner cursor en 7, 3
+	if( (decimal)<10 )
     {
         lcdSendStringRaw( "0" );  
     }
-    lcdSendStringRaw( uartBuff );
+    lcdSendStringRaw( year_d );
     lcdGoToXY( 11, 3 ); // Poner cursor en 1, 1 (columna,fila)
     lcdSendStringRaw( "," );
 
 	/* Conversion de entero a ascii con base decimal */
-	itoa( (int) (rtc->hour), (char*)uartBuff, 10 ); /* 10 significa decimal */
-	/* Envio la hora */
+    decimal = 0;
+    decimal = time_decimal(rtc->hour); // Descompone el int8 en 2 partes y lo convierte a decimal
+    sprintf(hour_d, "%d", decimal);// Convertimos el resultado en un char
+    
+    /* Envio la hora */
     lcdGoToXY( 12, 3 ); // Poner cursor en 1, 1
-	if( (rtc->hour)<10 )
+	if( (decimal)<10 )
     {
         lcdSendStringRaw( "0" );  
     }
-    lcdSendStringRaw( uartBuff );
-    lcdGoToXY( 14, 3 ); // Poner cursor en 1, 1 (columna,fila)
+    lcdSendStringRaw( hour_d );
+    lcdGoToXY( 14, 3 ); // Poner cursor en 14, 3 (columna,fila)
     lcdSendStringRaw( ":" );
 
 	/* Conversion de entero a ascii con base decimal */
-	itoa( (int) (rtc->min), (char*)uartBuff, 10 ); /* 10 significa decimal */
-	/* Envio los minutos */
-	lcdGoToXY( 15, 3 ); // Poner cursor en 1, 1
-    if( (rtc->min)<10 )
+    decimal = 0;
+    decimal = time_decimal(rtc->min); // Descompone el int8 en 2 partes y lo convierte a decimal
+    sprintf(min_d, "%d", decimal);// Convertimos el resultado en un char
+    
+    /* Envio los minutos */
+	lcdGoToXY( 15, 3 ); // Poner cursor en 15, 3
+    if( (decimal)<10 )
     {
         lcdSendStringRaw( "0" );    
     }
-    lcdSendStringRaw( uartBuff );
-    lcdGoToXY( 17, 3 ); // Poner cursor en 1, 1 (columna,fila)
+    lcdSendStringRaw( min_d );
+    lcdGoToXY( 17, 3 ); // Poner cursor en 17, 3 (columna,fila)
     lcdSendStringRaw( ":" );
 
 	/* Conversion de entero a ascii con base decimal */
-	itoa( (int) (rtc->sec), (char*)uartBuff, 10 ); /* 10 significa decimal */
-	/* Envio los segundos */
-	lcdGoToXY( 18, 3 ); // Poner cursor en 1, 1
-    if( (rtc->sec)<10 )
+    decimal = 0;
+    decimal = time_decimal(rtc->sec); // Descompone el int8 en 2 partes y lo convierte a decimal
+    sprintf(sec_d, "%d", decimal);// Convertimos el resultado en un char
+    
+    /* Envio los segundos */
+	lcdGoToXY( 18, 3 ); // Poner cursor en 18, 3
+    if( (decimal)<10 )
     {
         lcdSendStringRaw( "0" );
     }
-    lcdSendStringRaw( uartBuff );
+    lcdSendStringRaw( sec_d );
 }
